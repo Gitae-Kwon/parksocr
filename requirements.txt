@@ -4,4 +4,4 @@ pandas
 openpyxl
 numpy
 paddleocr
-paddlepaddle==2.5.0    # CPU 환경 기준
+paddlepaddle -f https://www.paddlepaddle.org.cn/whl/paddle_cpu.html
