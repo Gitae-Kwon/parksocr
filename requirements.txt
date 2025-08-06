@@ -1,0 +1,6 @@
+streamlit
+pillow
+pandas
+openpyxl
+paddleocr
+paddlepaddle==2.5.0  # CPU 환경용
