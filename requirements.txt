@@ -2,5 +2,6 @@ streamlit
 pillow
 pandas
 openpyxl
+numpy
 paddleocr
-paddlepaddle==2.5.0  # CPU 환경용
+paddlepaddle==2.5.0    # CPU 환경 기준
