@@ -1,42 +1,38 @@
 import streamlit as st
 import pandas as pd
 import io
-from ocr_utils import extract_text_from_ocr_space, parse_ocr_text
+from ocr_utils import extract_text_from_ocr_space, parse_specified_fields
 
-st.set_page_config(page_title="이미지 OCR → 항목별 정리 → 엑셀 저장", layout="wide")
-st.title("🧾 이미지에서 텍스트 추출 → 항목별 정리 → 엑셀 저장")
+st.set_page_config(page_title="이미지 OCR → 지정 필드 추출 → 엑셀", layout="wide")
+st.title("🧾 지정 필드만 뽑아내는 OCR → 엑셀 변환기")
 
-uploaded = st.file_uploader(
-    "📂 이미지 업로드 (여러 개 선택 가능)",
-    type=["jpg", "jpeg", "png"],
-    accept_multiple_files=True
-)
+uploaded = st.file_uploader("📂 이미지 업로드 (여러 개 선택 가능)", type=["jpg","jpeg","png"], accept_multiple_files=True)
 
 if uploaded:
-    results = []
+    rows = []
     prog = st.progress(0)
 
     for i, file in enumerate(uploaded):
         try:
             img_bytes = file.read()
             raw = extract_text_from_ocr_space(img_bytes)
-            parsed = parse_ocr_text(raw)
+            parsed = parse_specified_fields(raw)
             parsed["파일명"] = file.name
-            results.append(parsed)
+            rows.append(parsed)
         except Exception as e:
-            results.append({"파일명": file.name, "오류": str(e)})
-        prog.progress((i + 1) / len(uploaded))
+            rows.append({"파일명": file.name, "오류": str(e)})
+        prog.progress((i+1)/len(uploaded))
 
-    df = pd.DataFrame(results)
+    df = pd.DataFrame(rows)
     st.dataframe(df, use_container_width=True)
 
     if not df.empty:
         buf = io.BytesIO()
-        with pd.ExcelWriter(buf, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False)
+        with pd.ExcelWriter(buf, engine='openpyxl') as w:
+            df.to_excel(w, index=False)
         st.download_button(
-            "📥 엑셀 파일 다운로드",
+            "📥 엑셀 다운로드",
             data=buf.getvalue(),
-            file_name="ocr_parsed.xlsx",
+            file_name="ocr_fields.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
