@@ -1,7 +1,7 @@
 import requests
 import re
 
-API_KEY = "여기에_발급받은_API_키_문자열_형태로_삽입"
+API_KEY = "K89682508288957"
 
 def extract_text_from_ocr_space(image_bytes):
     url = 'https://api.ocr.space/parse/image'
