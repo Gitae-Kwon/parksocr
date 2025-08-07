@@ -1,40 +1,32 @@
 # app.py
 import streamlit as st
-from ocr_utils import extract_text
-from PIL import Image
 import pandas as pd
 import io
+from ocr_utils import extract_text_from_ocr_space
 
-st.set_page_config(page_title="이미지 OCR → 엑셀 변환기", layout="wide")
-st.title("🧾 이미지에서 텍스트 추출 → 엑셀 저장")
+st.set_page_config(page_title="OCR.space 기반 이미지 → 엑셀", layout="wide")
+st.title("🧾 이미지에서 텍스트 추출 → 엑셀 변환")
 
-uploaded_files = st.file_uploader("📂 이미지 업로드 (다중 선택 가능)", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
+api_key = st.text_input("🔑 OCR.space API Key를 입력하세요", type="password")
 
-if uploaded_files:
+uploaded_files = st.file_uploader("📁 이미지 업로드 (여러 개 가능)", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
+
+if uploaded_files and api_key:
     results = []
 
-    progress = st.progress(0, text="OCR 처리 중...")
-
-    for idx, file in enumerate(uploaded_files):
-        try:
-            image = Image.open(file).convert("RGB")
-            text = extract_text(image)
-            results.append({"파일명": file.name, "OCR결과": text})
-        except Exception as e:
-            results.append({"파일명": file.name, "OCR결과": f"[ERROR] {str(e)}"})
-        progress.progress((idx + 1) / len(uploaded_files), text=f"{idx + 1} / {len(uploaded_files)} 처리 중...")
+    with st.spinner("🔍 OCR 처리 중..."):
+        for file in uploaded_files:
+            try:
+                text = extract_text_from_ocr_space(file.read(), api_key)
+                results.append({"파일명": file.name, "OCR 결과": text})
+            except Exception as e:
+                results.append({"파일명": file.name, "OCR 결과": f"❌ 오류: {str(e)}"})
 
     df = pd.DataFrame(results)
-
-    st.success("✅ 모든 이미지 처리 완료!")
     st.dataframe(df)
 
     # 엑셀 다운로드
-    excel_buffer = io.BytesIO()
-    df.to_excel(excel_buffer, index=False, engine="openpyxl")
-    st.download_button(
-        label="📥 엑셀 파일 다운로드",
-        data=excel_buffer.getvalue(),
-        file_name="ocr_output.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+    towrite = io.BytesIO()
+    with pd.ExcelWriter(towrite, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False)
+    st.download_button("📥 엑셀 파일 다운로드", data=towrite.getvalue(), file_name="ocr_results.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
