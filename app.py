@@ -3,9 +3,9 @@ import os
 import io
 import re
 import streamlit as st
-import pandas as pd
+from google.oauth2 import service_account
 from google.cloud import vision
-
+import pandas as pd
 # 1) Google Vision 클라이언트 초기화
 #    환경 변수 GOOGLE_APPLICATION_CREDENTIALS로 JSON 키 경로가 지정되어 있어야 함
 client = vision.ImageAnnotatorClient()
