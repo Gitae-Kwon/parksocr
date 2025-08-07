@@ -7,7 +7,7 @@ import io
 st.set_page_config(page_title="이미지 OCR → 엑셀 변환기", layout="wide")
 st.title("🧾 이미지에서 텍스트 추출 → 엑셀 저장")
 
-api_key = st.text_input("🔑 OCR.space API Key를 입력하세요", type="password")
+api_key = st.text_input("K89682508288957", type="password")
 
 uploaded_files = st.file_uploader("📂 이미지 업로드 (여러 개 가능)", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
 
