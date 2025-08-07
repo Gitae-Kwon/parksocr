@@ -24,24 +24,28 @@ def ocr_google_vision(img: Image.Image) -> str:
 
 # ─── 3) parse_header: 전번 위의 마지막 이름 추출 ─────────────────
 def parse_header(text: str) -> dict:
-    # (1) 전번 레이블 앞까지만 분리
+    # 전번 앞까지 텍스트 잘라내기
     head_until_phone = text.split("전번", 1)[0]
-    # (2) 그 구간에서 모든 '이름:' 값을 찾아, 맨 마지막을 선택
-    names = re.findall(r"이름[:\s]*([가-힣A-Za-z· ]+)", head_until_phone)
-    name  = names[-1].strip() if names else None
 
-    # (3) 나머지 필드는 전체 텍스트에서 검색
+    # 모든 '이름:' 뒤 값을 리스트로 뽑되
+    #   '이름' (레이블만 읽힌 경우) 는 필터링해서 제거
+    raw_names = re.findall(r"이름[:：]\s*([^\n]+)", head_until_phone)
+    names = [n.strip() for n in raw_names if n.strip() != "이름"]
+    # 남은 게 있으면 마지막, 없으면 None
+    name = names[-1] if names else None
+
+    # 나머지 필드는 기존대로
     m_phone  = re.search(r"전번[:\s]*([\d\s\-]+)", text)
     m_birth  = re.search(r"생년[:\s]*(\d{6,8})", text)
-    m_bundle = re.search(r"결합[:\s]*([가-힣A-Za-z0-9]+)", text)
+    m_bundle = re.search(r"결합[:\s]*([^\n]+)", text)
     m_addr   = re.search(r"주소[:\s]*(.+?)(?=\n)", text)
 
     return {
-        "이름":   name,
-        "전번":   m_phone.group(1).strip()   if m_phone  else None,
-        "생년":   m_birth.group(1).strip()   if m_birth  else None,
-        "결합":   m_bundle.group(1).strip()  if m_bundle else None,
-        "주소":   m_addr.group(1).strip()    if m_addr   else None,
+        "이름": name,
+        "전번": m_phone .group(1).strip() if m_phone  else None,
+        "생년": m_birth.group(1).strip() if m_birth  else None,
+        "결합": m_bundle.group(1).strip() if m_bundle else None,
+        "주소": m_addr  .group(1).strip() if m_addr   else None,
     }
 
 # ─── 4) 기타 필드(인터넷·TV·스마트홈·고객희망일) 파싱 ─────────────────
