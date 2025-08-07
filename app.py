@@ -22,36 +22,27 @@ def ocr_google_vision(img: Image.Image) -> str:
         raise RuntimeError(resp.error.message)
     return resp.full_text_annotation.text
 
-# ─── 3) 헤더(이름·전번·생년·결합·주소) 파싱 ─────────────────
-# 전체 텍스트에서 추출하므로 ROI 제거
-
-HEADER_PATTERNS = {
-    "이름": r"이름[:\s]*([가-힣A-Za-z· ]+)",
-    "전번": r"전번[:\s]*([\d\s\-]+)",
-    "생년": r"생년[:\s]*(\d{6,8})",
-    "결합": r"결합[:\s]*([가-힣A-Za-z0-9]+)",
-    "주소": r"주소[:\s]*(.+?)(?=\n)",
-}
-
+# ─── 3) parse_header: 전번 위의 마지막 이름 추출 ─────────────────
 def parse_header(text: str) -> dict:
-    data = {}
+    # (1) 전번 레이블 앞까지만 분리
+    head_until_phone = text.split("전번", 1)[0]
+    # (2) 그 구간에서 모든 '이름:' 값을 찾아, 맨 마지막을 선택
+    names = re.findall(r"이름[:\s]*([가-힣A-Za-z· ]+)", head_until_phone)
+    name  = names[-1].strip() if names else None
 
-    # 이름: 두 번째 매칭(실제 이름) 우선
-    all_names = re.findall(HEADER_PATTERNS["이름"], text)
-    if len(all_names) >= 2:
-        data["이름"] = all_names[1].strip()
-    elif len(all_names) == 1:
-        data["이름"] = all_names[0].strip()
-    else:
-        data["이름"] = None
+    # (3) 나머지 필드는 전체 텍스트에서 검색
+    m_phone  = re.search(r"전번[:\s]*([\d\s\-]+)", text)
+    m_birth  = re.search(r"생년[:\s]*(\d{6,8})", text)
+    m_bundle = re.search(r"결합[:\s]*([가-힣A-Za-z0-9]+)", text)
+    m_addr   = re.search(r"주소[:\s]*(.+?)(?=\n)", text)
 
-    # 나머지 필드
-    for field in ["전번", "생년", "결합", "주소"]:
-        pat = HEADER_PATTERNS[field]
-        m = re.search(pat, text)
-        data[field] = m.group(1).strip() if m else None
-
-    return data
+    return {
+        "이름":   name,
+        "전번":   m_phone.group(1).strip()   if m_phone  else None,
+        "생년":   m_birth.group(1).strip()   if m_birth  else None,
+        "결합":   m_bundle.group(1).strip()  if m_bundle else None,
+        "주소":   m_addr.group(1).strip()    if m_addr   else None,
+    }
 
 # ─── 4) 기타 필드(인터넷·TV·스마트홈·고객희망일) 파싱 ─────────────────
 OTHER_PATTERNS = {
@@ -108,43 +99,48 @@ def parse_footer_name(text: str) -> str:
     return m.group(1).strip() if m else None
 
 # ─── 7) Streamlit UI ─────────────────
-st.set_page_config(page_title="OCR 통합 추출", layout="wide")
-st.title("📷 OCR → 전체+하단+푸터 필드 추출 → 엑셀")
+st.set_page_config(page_title="OCR 종합 추출", layout="wide")
+st.title("📷 OCR → 모든 영역 필드 추출 → 엑셀 저장")
 
-uploaded = st.file_uploader("이미지 업로드 (여러 장)", type=["jpg","jpeg","png"], accept_multiple_files=True)
+uploaded = st.file_uploader(
+    "이미지 업로드 (여러 장)", 
+    type=["jpg","jpeg","png"], 
+    accept_multiple_files=True
+)
+
 if uploaded:
     rows, prog = [], st.progress(0)
-    for idx, f in enumerate(uploaded):
+    for i, f in enumerate(uploaded):
         img = Image.open(f).convert("RGB")
         try:
-            # 전체 텍스트 한 번에
+            # 전체 텍스트 OCR
             full_txt = ocr_google_vision(img)
 
-            # 헤더값(이름·전번·생년·결합·주소)
+            # 1) 헤더: 이름(전번 앞의 마지막), 전번, 생년, 결합, 주소
             hdr = parse_header(full_txt)
 
-            # 기타 필드
+            # 2) 기타
             oth = parse_others(full_txt)
 
-            # 공용단말
-            dev = extract_common_device(img)
+            # 3) 공용단말
+            com = extract_common_device(img)
 
-            # 푸터 신청자명
+            # 4) 신청자명
             ftr_txt = ocr_footer(img)
-            name    = parse_footer_name(ftr_txt)
+            ft_name = parse_footer_name(ftr_txt)
 
             record = {
                 **hdr,
                 **oth,
-                "공용단말": dev,
-                "신청자명": name,
+                "공용단말": com,
+                "신청자명": ft_name,
                 "파일명":   f.name
             }
         except Exception as e:
             record = {"파일명": f.name, "오류": str(e)}
 
         rows.append(record)
-        prog.progress((idx+1)/len(uploaded))
+        prog.progress((i+1)/len(uploaded))
 
     df = pd.DataFrame(rows)
     st.dataframe(df, use_container_width=True)
@@ -155,6 +151,6 @@ if uploaded:
     st.download_button(
         "📥 엑셀 다운로드",
         data=buf.getvalue(),
-        file_name="ocr_complete_extract.xlsx",
+        file_name="ocr_all_fields.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
