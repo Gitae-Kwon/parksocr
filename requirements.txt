@@ -1,7 +1,4 @@
 streamlit
-pillow
 pandas
 openpyxl
-numpy
-paddleocr
-paddlepaddle -f https://www.paddlepaddle.org.cn/whl/paddle_cpu.html
+requests
