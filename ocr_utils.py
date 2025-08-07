@@ -1,7 +1,6 @@
 import requests
 
-# API 키를 여기 하드코딩
-API_KEY = "여기에_발급받은_API_키를_입력하세요"
+API_KEY = "K89682508288957"  # 여기에 본인의 OCR.space API Key 하드코딩
 
 def extract_text_from_ocr_space(image_bytes):
     url = 'https://api.ocr.space/parse/image'
@@ -10,7 +9,7 @@ def extract_text_from_ocr_space(image_bytes):
         'isOverlayRequired': False,
         'language': 'kor'
     }
-    files = {'filename': ('image.jpg', image_bytes)}
+    files = {'filename': image_bytes}
 
     response = requests.post(url, data=payload, files=files)
     result = response.json()
@@ -23,8 +22,7 @@ def extract_text_from_ocr_space(image_bytes):
 
 def parse_ocr_text(text):
     """
-    OCR 결과 텍스트를 key:value 항목으로 파싱
-    예: 이름: 홍길동 → {"이름": "홍길동"}
+    OCR로 추출한 텍스트를 key: value 형태로 파싱하여 dict로 반환
     """
     lines = text.splitlines()
     parsed = {}
