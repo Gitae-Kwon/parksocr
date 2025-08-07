@@ -25,44 +25,46 @@ def ocr_google_vision(img: Image.Image) -> str:
         raise RuntimeError(resp.error.message)
     return resp.full_text_annotation.text
 
-# ─── 2-1) 노란 스티커(헤더) 영역만 잘라내는 헬퍼 ─────────────
+# ─── 2-1) 노란 스티커(헤더) 영역만 잘라내기 ──────────────
 def extract_header_region(img: Image.Image) -> Image.Image:
     arr = np.array(img.convert("RGB"))
     hsv = np.array(Image.fromarray(arr).convert("HSV"))
     h, s, v = hsv[:,:,0], hsv[:,:,1], hsv[:,:,2]
 
-    # 노란색 범위: Hue 20~40, S>100, V>100
     mask = ( (h>=20)&(h<=40)&(s>=100)&(v>=100) )
     ys, xs = np.where(mask)
     if len(xs)==0 or len(ys)==0:
-        return img  # 못 찾으면 전체 반환
+        return img
 
     x0, x1 = xs.min(), xs.max()
     y0, y1 = ys.min(), ys.max()
-    m = 5  # margin
+    m = 5
     h0, h1 = max(0,y0-m), min(arr.shape[0],y1+m)
     w0, w1 = max(0,x0-m), min(arr.shape[1],x1+m)
 
     return img.crop((w0, h0, w1, h1))
 
-# ─── 3) parse_header: 이미지 → 노란 영역만 OCR → 레이블:값 파싱 ────
-def parse_header(img: Image.Image) -> dict:
+# ─── 3) parse_header: 헤더 이미지 + 전체 텍스트 넘겨받아 파싱 ────
+def parse_header(img: Image.Image, full_text: str) -> dict:
+    # 1) 노란 영역만 OCR
     header_img = extract_header_region(img)
     header_txt = ocr_google_vision(header_img)
 
-    # 이름:
+    # 2) 이름
     m_name  = re.search(r"^이름:\s*(.+)$", header_txt, flags=re.MULTILINE)
     name    = m_name.group(1).strip() if m_name else None
 
-    # 전번:
+    # 3) 전번
     m_phone = re.search(r"^전번:\s*([\d\s\-]+)$", header_txt, flags=re.MULTILINE)
     phone   = m_phone.group(1).strip() if m_phone else None
 
-    # 생년:
+    # 4) 생년: 먼저 header_txt, 없으면 full_text
     m_birth = re.search(r"^생년:\s*(\d{6,8})$", header_txt, flags=re.MULTILINE)
-    birth   = m_birth.group(1).strip() if m_birth else None
+    if not m_birth:
+        m_birth = re.search(r"생년[:：]\s*(\d{6,8})", full_text)
+    birth = m_birth.group(1).strip() if m_birth else None
 
-    # 결합: 두 번째 매칭 우선
+    # 5) 결합: 두 번째 우선
     bundles = re.findall(r"^결합:\s*([^\n]+)$", header_txt, flags=re.MULTILINE)
     if len(bundles) >= 2:
         bundle = bundles[1].strip()
@@ -71,7 +73,7 @@ def parse_header(img: Image.Image) -> dict:
     else:
         bundle = None
 
-    # 주소:
+    # 6) 주소
     m_addr  = re.search(r"^주소:\s*(.+)$", header_txt, flags=re.MULTILINE)
     addr    = m_addr.group(1).strip() if m_addr else None
 
@@ -139,7 +141,7 @@ def parse_footer_name(text: str) -> str:
 
 # ─── 7) Streamlit UI ─────────────────────
 st.set_page_config(page_title="OCR 통합 추출", layout="wide")
-st.title("📷 OCR → 모두 추출 → 엑셀 저장")
+st.title("📷 OCR → 통합 필드 추출 → 엑셀 저장")
 
 uploaded = st.file_uploader(
     "이미지 업로드 (여러 장)", 
@@ -153,27 +155,27 @@ if uploaded:
         img = Image.open(f).convert("RGB")
 
         try:
-            # 전체 텍스트 OCR (others, common, footer 용)
+            # 1) 전체 텍스트 OCR
             full_txt = ocr_google_vision(img)
 
-            # 1) 헤더: 이미지 자체를 넘겨서 노란 영역 OCR
-            hdr       = parse_header(img)
+            # 2) 헤더: img + full_txt 함께 넘겨서 생년 fallback 포함
+            hdr      = parse_header(img, full_txt)
 
-            # 2) 기타 필드: 전체 텍스트에서
-            oth       = parse_others(full_txt)
+            # 3) 기타
+            oth      = parse_others(full_txt)
 
-            # 3) 공용단말
-            common    = extract_common_device(img)
+            # 4) 공용단말
+            common   = extract_common_device(img)
 
-            # 4) 푸터 신청자명
-            ftr_txt   = ocr_footer(img)
-            ftr_name  = parse_footer_name(ftr_txt)
+            # 5) 푸터 신청자명
+            ftr_txt  = ocr_footer(img)
+            ftr_name = parse_footer_name(ftr_txt)
 
             record = {
                 **hdr,
                 **oth,
-                "공용단말":  common,
-                "신청자명":  ftr_name,
+                "공용단말": common,
+                "신청자명": ftr_name,
                 "파일명":   f.name
             }
         except Exception as e:
