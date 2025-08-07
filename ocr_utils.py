@@ -1,28 +1,16 @@
 # ocr_utils.py
-from paddleocr import PaddleOCR
-from PIL import Image
-import numpy as np
+import requests
 
-# PaddleOCR 모델을 전역에서 한 번만 로딩 (속도 & 안정성 ↑)
-ocr = PaddleOCR(use_angle_cls=True, lang='korean')
-
-# 텍스트 정제용 오타 보정 사전
-corrections = {
-    "똑똑케어": "펫케어",
-    "WIFI (무료WIFI)가": "WIFI (무료WIFI)기가",
-    "기기인터넷": "기가인터넷",
-    "무료": "무료",
-    "욜정": "요금제"
-}
-
-def extract_text(image: Image.Image) -> str:
-    image_np = np.array(image)
-    result = ocr.ocr(image_np, cls=True)
-    lines = [line[1][0] for line in result[0]]
-
-    # 오타 보정
-    text = "\n".join(lines)
-    for wrong, right in corrections.items():
-        text = text.replace(wrong, right)
-
-    return text
+def extract_text_from_ocr_space(image_bytes, api_key):
+    url = 'https://api.ocr.space/parse/image'
+    payload = {
+        'isOverlayRequired': False,
+        'apikey': K89682508288957,
+        'language': 'kor'  # 한국어
+    }
+    files = {'filename': image_bytes}
+    response = requests.post(url, data=payload, files=files)
+    result = response.json()
+    if result.get("IsErroredOnProcessing"):
+        raise ValueError(result.get("ErrorMessage", ["Unknown error"])[0])
+    return result['ParsedResults'][0]['ParsedText']
