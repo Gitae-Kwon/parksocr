@@ -13,7 +13,7 @@ service_account_info = st.secrets["gcp_service_account"]
 creds  = service_account.Credentials.from_service_account_info(service_account_info)
 client = vision.ImageAnnotatorClient(credentials=creds)
 
-# ─── 2) OCR 전체 함수 ─────────────────
+# ─── 2) 전체 OCR 함수 ─────────────────
 def ocr_google_vision(img: Image.Image) -> str:
     buf = io.BytesIO()
     img.save(buf, format="JPEG")
@@ -22,13 +22,8 @@ def ocr_google_vision(img: Image.Image) -> str:
         raise RuntimeError(resp.error.message)
     return resp.full_text_annotation.text
 
-# ─── 3) 헤더 영역 OCR ─────────────────
-HEADER_ROI = (0.55, 0.05, 1.00, 0.40)
-def ocr_header(img: Image.Image) -> str:
-    W, H = img.size
-    l, t, r, b = int(HEADER_ROI[0]*W), int(HEADER_ROI[1]*H), int(HEADER_ROI[2]*W), int(HEADER_ROI[3]*H)
-    crop = img.crop((l, t, r, b))
-    return ocr_google_vision(crop)
+# ─── 3) 헤더(이름·전번·생년·결합·주소) 파싱 ─────────────────
+# 전체 텍스트에서 추출하므로 ROI 제거
 
 HEADER_PATTERNS = {
     "이름": r"이름[:\s]*([가-힣A-Za-z· ]+)",
@@ -39,12 +34,26 @@ HEADER_PATTERNS = {
 }
 
 def parse_header(text: str) -> dict:
-    return {
-        k: (m.group(1).strip() if (m := re.search(p, text)) else None)
-        for k, p in HEADER_PATTERNS.items()
-    }
+    data = {}
 
-# ─── 4) 전체 이미지 다른 필드 OCR ─────────────────
+    # 이름: 두 번째 매칭(실제 이름) 우선
+    all_names = re.findall(HEADER_PATTERNS["이름"], text)
+    if len(all_names) >= 2:
+        data["이름"] = all_names[1].strip()
+    elif len(all_names) == 1:
+        data["이름"] = all_names[0].strip()
+    else:
+        data["이름"] = None
+
+    # 나머지 필드
+    for field in ["전번", "생년", "결합", "주소"]:
+        pat = HEADER_PATTERNS[field]
+        m = re.search(pat, text)
+        data[field] = m.group(1).strip() if m else None
+
+    return data
+
+# ─── 4) 기타 필드(인터넷·TV·스마트홈·고객희망일) 파싱 ─────────────────
 OTHER_PATTERNS = {
     "U+ 인터넷":      r"U\+\s*인터넷[:\s]*([0-9]+)",
     "인터넷_요금제":   r"요금제[:\s]*([^\n]+)",
@@ -79,7 +88,7 @@ def parse_others(text: str) -> dict:
         for k, p in OTHER_PATTERNS.items()
     }
 
-# ─── 5) 공용단말(하단 50%) OCR ─────────────────
+# ─── 5) 공용단말(하단50%) 추출 ─────────────────
 def extract_common_device(img: Image.Image) -> str:
     W, H = img.size
     crop = img.crop((0, H//2, W, H))
@@ -87,7 +96,7 @@ def extract_common_device(img: Image.Image) -> str:
     m = re.search(r"WIFI\s*([^\n]+)", txt, re.IGNORECASE)
     return m.group(1).strip() if m else None
 
-# ─── 6) 푸터(신청자명/연락처) OCR ─────────────────
+# ─── 6) 푸터(신청자명) 추출 ─────────────────
 FOOTER_ROI = (0.00, 0.80, 1.00, 1.00)
 def ocr_footer(img: Image.Image) -> str:
     W, H = img.size
@@ -99,47 +108,43 @@ def parse_footer_name(text: str) -> str:
     return m.group(1).strip() if m else None
 
 # ─── 7) Streamlit UI ─────────────────
-st.set_page_config(page_title="OCR 종합 추출", layout="wide")
-st.title("📷 OCR → 헤더·전체·하단·푸터 영역별 필드 추출 → 엑셀")
+st.set_page_config(page_title="OCR 통합 추출", layout="wide")
+st.title("📷 OCR → 전체+하단+푸터 필드 추출 → 엑셀")
 
-uploaded = st.file_uploader(
-    "이미지 업로드 (여러 장)", 
-    type=["jpg","jpeg","png"], 
-    accept_multiple_files=True
-)
-
+uploaded = st.file_uploader("이미지 업로드 (여러 장)", type=["jpg","jpeg","png"], accept_multiple_files=True)
 if uploaded:
     rows, prog = [], st.progress(0)
-    for i, f in enumerate(uploaded):
+    for idx, f in enumerate(uploaded):
         img = Image.open(f).convert("RGB")
         try:
-            # 1) 헤더
-            hdr_txt  = ocr_header(img)
-            hdr_data = parse_header(hdr_txt)
+            # 전체 텍스트 한 번에
+            full_txt = ocr_google_vision(img)
 
-            # 2) 전체
-            full_txt  = ocr_google_vision(img)
-            oth_data  = parse_others(full_txt)
+            # 헤더값(이름·전번·생년·결합·주소)
+            hdr = parse_header(full_txt)
 
-            # 3) 하단 공용단말
-            com_dev   = extract_common_device(img)
+            # 기타 필드
+            oth = parse_others(full_txt)
 
-            # 4) 푸터 신청자명
-            ftr_txt   = ocr_footer(img)
-            ftr_name  = parse_footer_name(ftr_txt)
+            # 공용단말
+            dev = extract_common_device(img)
+
+            # 푸터 신청자명
+            ftr_txt = ocr_footer(img)
+            name    = parse_footer_name(ftr_txt)
 
             record = {
-                **hdr_data,
-                **oth_data,
-                "공용단말": com_dev,
-                "신청자명": ftr_name,
+                **hdr,
+                **oth,
+                "공용단말": dev,
+                "신청자명": name,
                 "파일명":   f.name
             }
         except Exception as e:
             record = {"파일명": f.name, "오류": str(e)}
 
         rows.append(record)
-        prog.progress((i+1)/len(uploaded))
+        prog.progress((idx+1)/len(uploaded))
 
     df = pd.DataFrame(rows)
     st.dataframe(df, use_container_width=True)
@@ -150,6 +155,6 @@ if uploaded:
     st.download_button(
         "📥 엑셀 다운로드",
         data=buf.getvalue(),
-        file_name="ocr_full_extract.xlsx",
+        file_name="ocr_complete_extract.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
