@@ -22,33 +22,26 @@ def ocr_google_vision(img: Image.Image) -> str:
         raise RuntimeError(resp.error.message)
     return resp.full_text_annotation.text
 
-# ─── 3) parse_header: 전번 위의 마지막 이름 추출 ─────────────────
+# ─── 3) HEADER 필드 파싱(이름·전번·생년·결합·주소) ─────────────────
+# multiline 모드, 줄 시작(^)·줄 끝($) 강제
+HEADER_PATTERNS = {
+    "이름": r"(?m)^이름[:：]\s*(.+)$",
+    "전번": r"(?m)^전번[:：]\s*([\d\s\-]+)$",
+    "생년": r"(?m)^생년[:：]\s*(\d{6,8})$",
+    "결합": r"(?m)^결합[:：]\s*(.+)$",
+    "주소": r"(?m)^주소[:：]\s*(.+)$",
+}
+
 def parse_header(text: str) -> dict:
-    # 전번 앞까지 텍스트 잘라내기
-    head_until_phone = text.split("전번", 1)[0]
+    data = {}
+    for field, pat in HEADER_PATTERNS.items():
+        vals = re.findall(pat, text)
+        # "이름" 같은 레이블만 잡힌 경우 제거
+        vals = [v.strip() for v in vals if v.strip() and v.strip() != field]
+        data[field] = vals[-1] if vals else None
+    return data
 
-    # 모든 '이름:' 뒤 값을 리스트로 뽑되
-    #   '이름' (레이블만 읽힌 경우) 는 필터링해서 제거
-    raw_names = re.findall(r"이름[:：]\s*([^\n]+)", head_until_phone)
-    names = [n.strip() for n in raw_names if n.strip() != "이름"]
-    # 남은 게 있으면 마지막, 없으면 None
-    name = names[-1] if names else None
-
-    # 나머지 필드는 기존대로
-    m_phone  = re.search(r"전번[:\s]*([\d\s\-]+)", text)
-    m_birth  = re.search(r"생년[:\s]*(\d{6,8})", text)
-    m_bundle = re.search(r"결합[:\s]*([^\n]+)", text)
-    m_addr   = re.search(r"주소[:\s]*(.+?)(?=\n)", text)
-
-    return {
-        "이름": name,
-        "전번": m_phone .group(1).strip() if m_phone  else None,
-        "생년": m_birth.group(1).strip() if m_birth  else None,
-        "결합": m_bundle.group(1).strip() if m_bundle else None,
-        "주소": m_addr  .group(1).strip() if m_addr   else None,
-    }
-
-# ─── 4) 기타 필드(인터넷·TV·스마트홈·고객희망일) 파싱 ─────────────────
+# ─── 4) 기타 필드 파싱(인터넷·TV·스마트홈·고객희망일) ─────────────────
 OTHER_PATTERNS = {
     "U+ 인터넷":      r"U\+\s*인터넷[:\s]*([0-9]+)",
     "인터넷_요금제":   r"요금제[:\s]*([^\n]+)",
@@ -83,7 +76,7 @@ def parse_others(text: str) -> dict:
         for k, p in OTHER_PATTERNS.items()
     }
 
-# ─── 5) 공용단말(하단50%) 추출 ─────────────────
+# ─── 5) 공용단말(하단 50%) 추출 ─────────────────
 def extract_common_device(img: Image.Image) -> str:
     W, H = img.size
     crop = img.crop((0, H//2, W, H))
@@ -91,7 +84,7 @@ def extract_common_device(img: Image.Image) -> str:
     m = re.search(r"WIFI\s*([^\n]+)", txt, re.IGNORECASE)
     return m.group(1).strip() if m else None
 
-# ─── 6) 푸터(신청자명) 추출 ─────────────────
+# ─── 6) 푸터 신청자명 추출 ─────────────────
 FOOTER_ROI = (0.00, 0.80, 1.00, 1.00)
 def ocr_footer(img: Image.Image) -> str:
     W, H = img.size
@@ -104,7 +97,7 @@ def parse_footer_name(text: str) -> str:
 
 # ─── 7) Streamlit UI ─────────────────
 st.set_page_config(page_title="OCR 종합 추출", layout="wide")
-st.title("📷 OCR → 모든 영역 필드 추출 → 엑셀 저장")
+st.title("📷 OCR → 전체·하단·푸터 영역별 필드 추출 → 엑셀 저장")
 
 uploaded = st.file_uploader(
     "이미지 업로드 (여러 장)", 
@@ -117,27 +110,23 @@ if uploaded:
     for i, f in enumerate(uploaded):
         img = Image.open(f).convert("RGB")
         try:
-            # 전체 텍스트 OCR
             full_txt = ocr_google_vision(img)
 
-            # 1) 헤더: 이름(전번 앞의 마지막), 전번, 생년, 결합, 주소
+            # 1) 헤더
             hdr = parse_header(full_txt)
-
             # 2) 기타
             oth = parse_others(full_txt)
-
             # 3) 공용단말
             com = extract_common_device(img)
-
             # 4) 신청자명
-            ftr_txt = ocr_footer(img)
-            ft_name = parse_footer_name(ftr_txt)
+            ftxt = ocr_footer(img)
+            fname = parse_footer_name(ftxt)
 
             record = {
                 **hdr,
                 **oth,
                 "공용단말": com,
-                "신청자명": ft_name,
+                "신청자명": fname,
                 "파일명":   f.name
             }
         except Exception as e:
