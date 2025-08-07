@@ -23,43 +23,73 @@ def ocr_google_vision(img: Image.Image) -> str:
     return resp.full_text_annotation.text
 
 # ─── 3) parse_header: 전번 위의 마지막 이름 추출 ─────────────────
-def parse_header(text: str) -> dict:
-    # (1) '전번' 레이블 앞까지만 분리
-    head_until_phone = text.split("전번", 1)[0]
+def extract_header_region(img: Image.Image) -> Image.Image:
+    """
+    이미지에서 노란 배경(스티커) 부분만 찾아 잘라서 반환합니다.
+    1) HSV 변환
+    2) 노란색 범위로 마스크
+    3) 마스크된 영역의 최소 바운딩 박스 계산
+    4) 해당 영역만 crop
+    """
+    arr = np.array(img.convert("RGB"))
+    # RGB -> HSV
+    hsv = np.array(Image.fromarray(arr).convert("HSV"))
+    h, s, v = hsv[:,:,0], hsv[:,:,1], hsv[:,:,2]
 
-    # (2) '이름:' 값은 기존대로 마지막 매칭
-    names = re.findall(r"이름[:\s]*([가-힣A-Za-z· ]+)", head_until_phone)
-    name  = names[-1].strip() if names else None
+    # 노란색 범위 (Hue ~20-40°, S>100, V>100)
+    mask = ((h >= 20) & (h <= 40) & (s >= 100) & (v >= 100))
 
-    # (3) '전번:' / '생년:' 은 전체 텍스트에서 그대로
-    m_phone = re.search(r"전번[:\s]*([\d\s\-]+)", text)
-    phone   = m_phone.group(1).strip() if m_phone else None
+    # 마스크된 좌표의 bounding box
+    ys, xs = np.where(mask)
+    if len(xs)==0 or len(ys)==0:
+        return img  # 못 찾으면 전체 리턴
+    x0, x1 = xs.min(), xs.max()
+    y0, y1 = ys.min(), ys.max()
+    # 약간 여유(margin) 주기
+    margin = 5
+    h0 = max(0, y0-margin)
+    h1 = min(arr.shape[0], y1+margin)
+    w0 = max(0, x0-margin)
+    w1 = min(arr.shape[1], x1+margin)
 
-    m_birth = re.search(r"생년[:\s]*(\d{6,8})", text)
-    birth   = m_birth.group(1).strip() if m_birth else None
+    return img.crop((w0, h0, w1, h1))
 
-    # ─── '결합:' 만 수정 ─────────────────────
-    # head_until_phone 구간에서 결합값 리스트 추출
-    bundles = re.findall(r"결합[:\s]*([가-힣A-Za-z0-9]+)", head_until_phone)
-    if len(bundles) >= 2:
-        bundle = bundles[1].strip()   # 두 번째 매칭값 사용
-    elif bundles:
-        bundle = bundles[0].strip()   # 한 개만 있으면 그 값
-    else:
+# ─── 3) parse_header: 오직 노란 영역 OCR한 텍스트에서만 검색 ────
+def parse_header(full_text: str) -> dict:
+    # 1) 헤더 영역 OCR: 노란 스티커만
+    header_txt = ocr_google_vision(extract_header_region(current_img))
+
+    # 2) 이름:
+    m_name   = re.search(r"이름[:]\s*([^\n]+)", header_txt)
+    name     = m_name.group(1).strip() if m_name else None
+
+    # 3) 전번:
+    m_phone  = re.search(r"전번[:]\s*([\d\s\-]+)", header_txt)
+    phone    = m_phone.group(1).strip() if m_phone else None
+
+    # 4) 생년:
+    m_birth  = re.search(r"생년[:]\s*(\d{6,8})", header_txt)
+    birth    = m_birth.group(1).strip() if m_birth else None
+
+    # 5) 결합:
+    bundles  = re.findall(r"결합[:]\s*([^\s\n]+)", header_txt)
+    # 노이즈 '서비스' 배제, 두 번째 우선
+    bundle   = bundles[1] if len(bundles)>1 else (bundles[0] if bundles else None)
+    if bundle and bundle.lower()=="서비스":
         bundle = None
-    # ────────────────────────────────────────
 
-    # (5) '주소:' 는 전체 텍스트에서 그대로
-    m_addr = re.search(r"주소[:\s]*(.+?)(?=\n)", text)
-    addr   = m_addr.group(1).strip() if m_addr else None
+    # 6) 주소:
+    m_addr   = re.search(r"주소[:]\s*(.+)$", header_txt, flags=re.MULTILINE)
+    addr     = m_addr.group(1).strip() if m_addr else None
 
     return {
-        "이름":   name,
-        "전번":   phone,
-        "생년":   birth,
-        "결합":   bundle,
-        "주소":   addr,
+        "이름":  name,
+        "전번":  phone,
+        "생년":  birth,
+        "결합":  bundle,
+        "주소":  addr,
     }
+
 
 # ─── 4) 기타 필드(인터넷·TV·스마트홈·고객희망일) 파싱 ─────────────────
 OTHER_PATTERNS = {
