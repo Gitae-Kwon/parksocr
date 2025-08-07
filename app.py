@@ -55,39 +55,34 @@ def extract_header_region(img: Image.Image) -> Image.Image:
     return img.crop((w0, h0, w1, h1))
 
 # ─── 3) parse_header: 오직 노란 영역 OCR한 텍스트에서만 검색 ────
-def parse_header(full_text: str) -> dict:
-    # 1) 헤더 영역 OCR: 노란 스티커만
-    header_txt = ocr_google_vision(extract_header_region(current_img))
+def parse_header(img: Image.Image) -> dict:
+    # 1) 노란 스티커 영역만 잘라서 header_img 에 담고
+    header_img = extract_header_region(img)
+    # 2) 그 영역만 OCR
+    header_txt = ocr_google_vision(header_img)
 
-    # 2) 이름:
-    m_name   = re.search(r"이름[:]\s*([^\n]+)", header_txt)
-    name     = m_name.group(1).strip() if m_name else None
+    # 3) 이제 header_txt 에서 레이블: 값 만 뽑습니다
+    m_name   = re.search(r"^이름:\s*([^\n]+)$", header_txt, flags=re.MULTILINE)
+    m_phone  = re.search(r"^전번:\s*([\d\s\-]+)$", header_txt, flags=re.MULTILINE)
+    m_birth  = re.search(r"^생년:\s*(\d{6,8})$", header_txt, flags=re.MULTILINE)
 
-    # 3) 전번:
-    m_phone  = re.search(r"전번[:]\s*([\d\s\-]+)", header_txt)
-    phone    = m_phone.group(1).strip() if m_phone else None
-
-    # 4) 생년:
-    m_birth  = re.search(r"생년[:]\s*(\d{6,8})", header_txt)
-    birth    = m_birth.group(1).strip() if m_birth else None
-
-    # 5) 결합:
-    bundles  = re.findall(r"결합[:]\s*([^\s\n]+)", header_txt)
-    # 노이즈 '서비스' 배제, 두 번째 우선
-    bundle   = bundles[1] if len(bundles)>1 else (bundles[0] if bundles else None)
-    if bundle and bundle.lower()=="서비스":
+    # 결합은 두 번째 매칭 우선
+    bundles  = re.findall(r"^결합:\s*([^\n]+)$", header_txt, flags=re.MULTILINE)
+    if len(bundles) >= 2:
+        bundle = bundles[1].strip()
+    elif bundles:
+        bundle = bundles[0].strip()
+    else:
         bundle = None
 
-    # 6) 주소:
-    m_addr   = re.search(r"주소[:]\s*(.+)$", header_txt, flags=re.MULTILINE)
-    addr     = m_addr.group(1).strip() if m_addr else None
+    m_addr   = re.search(r"^주소:\s*(.+)$", header_txt, flags=re.MULTILINE)
 
     return {
-        "이름":  name,
-        "전번":  phone,
-        "생년":  birth,
+        "이름":  m_name  .group(1).strip() if m_name   else None,
+        "전번":  m_phone .group(1).strip() if m_phone  else None,
+        "생년":  m_birth .group(1).strip() if m_birth  else None,
         "결합":  bundle,
-        "주소":  addr,
+        "주소":  m_addr  .group(1).strip() if m_addr   else None,
     }
 
 
