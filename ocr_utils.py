@@ -1,6 +1,7 @@
 import requests
+import re
 
-API_KEY = "K89682508288957"
+API_KEY = "여기에_발급받은_API_키_문자열_형태로_삽입"
 
 def extract_text_from_ocr_space(image_bytes):
     url = 'https://api.ocr.space/parse/image'
@@ -9,28 +10,32 @@ def extract_text_from_ocr_space(image_bytes):
         'isOverlayRequired': False,
         'language': 'kor',
     }
-    # 파일 파라미터를 'file' 키로, (이름, 바이트, MIME) 튜플 형식으로 넘겨야 인식됩니다
     files = {
         'file': ('image.jpg', image_bytes, 'image/jpeg')
     }
 
-    response = requests.post(url, data=payload, files=files)
-    result = response.json()
-
+    res = requests.post(url, data=payload, files=files)
+    result = res.json()
     if result.get("IsErroredOnProcessing"):
-        raise ValueError(result.get("ErrorMessage", ["Unknown error"])[0])
-
+        raise ValueError(result["ErrorMessage"][0])
     return result['ParsedResults'][0]['ParsedText']
 
+# 여기서 뽑을 항목과 패턴을 딕셔너리에 정의
+FIELD_PATTERNS = {
+    "이름":         r"이름[:\s]*([가-힣A-Za-z]+)",
+    "U+ 인터넷":   r"U\+\s*인터넷[:\s]*([0-9]+)",
+    "U+ TV (주)":   r"U\+\s*TV\s*\(주\)[:\s]*([0-9]+)",
+    "U+ TV (부)":   r"U\+\s*TV\s*\(부\)[:\s]*([0-9]+)",
+    "U+ 스마트홈":  r"U\+\s*스마트홈[:\s]*([0-9]+)",
+    # 필요하다면 여기에 더 추가...
+}
 
-def parse_ocr_text(text):
+def parse_specified_fields(text):
     """
-    OCR 로 출력된 긴 텍스트를
-    '키:값' 라인별로 분리하여 dict 반환
+    미리 정의한 FIELD_PATTERNS에서 지정한 항목만 뽑아 dict 반환.
     """
-    parsed = {}
-    for line in text.splitlines():
-        if ":" in line:
-            key, val = line.split(":", 1)
-            parsed[key.strip()] = val.strip()
-    return parsed
+    data = {}
+    for field, pat in FIELD_PATTERNS.items():
+        m = re.search(pat, text)
+        data[field] = m.group(1).strip() if m else None
+    return data
