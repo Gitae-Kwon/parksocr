@@ -100,7 +100,7 @@ def parse_footer_name(text: str) -> str:
 
 # ─── 7) Streamlit UI ─────────────────
 st.set_page_config(page_title="OCR 종합 추출", layout="wide")
-st.title("📷 OCR → 모든 영역 필드 추출 → 엑셀 저장")
+st.title("📷 OCR → 알바고고 → 엑셀 저장")
 
 uploaded = st.file_uploader(
     "이미지 업로드 (여러 장)", 
