@@ -24,24 +24,41 @@ def ocr_google_vision(img: Image.Image) -> str:
 
 # ─── 3) parse_header: 전번 위의 마지막 이름 추출 ─────────────────
 def parse_header(text: str) -> dict:
-    # (1) 전번 레이블 앞까지만 분리
+    # (1) '전번' 레이블 앞까지만 분리
     head_until_phone = text.split("전번", 1)[0]
-    # (2) 그 구간에서 모든 '이름:' 값을 찾아, 맨 마지막을 선택
+
+    # (2) '이름:' 값은 기존대로 마지막 매칭
     names = re.findall(r"이름[:\s]*([가-힣A-Za-z· ]+)", head_until_phone)
     name  = names[-1].strip() if names else None
 
-    # (3) 나머지 필드는 전체 텍스트에서 검색
-    m_phone  = re.search(r"전번[:\s]*([\d\s\-]+)", text)
-    m_birth  = re.search(r"생년[:\s]*(\d{6,8})", text)
-    m_bundle = re.search(r"결합[:\s]*([가-힣A-Za-z0-9]+)", text)
-    m_addr   = re.search(r"주소[:\s]*(.+?)(?=\n)", text)
+    # (3) '전번:' / '생년:' 은 전체 텍스트에서 그대로
+    m_phone = re.search(r"전번[:\s]*([\d\s\-]+)", text)
+    phone   = m_phone.group(1).strip() if m_phone else None
+
+    m_birth = re.search(r"생년[:\s]*(\d{6,8})", text)
+    birth   = m_birth.group(1).strip() if m_birth else None
+
+    # ─── '결합:' 만 수정 ─────────────────────
+    # head_until_phone 구간에서 결합값 리스트 추출
+    bundles = re.findall(r"결합[:\s]*([가-힣A-Za-z0-9]+)", head_until_phone)
+    if len(bundles) >= 2:
+        bundle = bundles[1].strip()   # 두 번째 매칭값 사용
+    elif bundles:
+        bundle = bundles[0].strip()   # 한 개만 있으면 그 값
+    else:
+        bundle = None
+    # ────────────────────────────────────────
+
+    # (5) '주소:' 는 전체 텍스트에서 그대로
+    m_addr = re.search(r"주소[:\s]*(.+?)(?=\n)", text)
+    addr   = m_addr.group(1).strip() if m_addr else None
 
     return {
         "이름":   name,
-        "전번":   m_phone.group(1).strip()   if m_phone  else None,
-        "생년":   m_birth.group(1).strip()   if m_birth  else None,
-        "결합":   m_bundle.group(1).strip()  if m_bundle else None,
-        "주소":   m_addr.group(1).strip()    if m_addr   else None,
+        "전번":   phone,
+        "생년":   birth,
+        "결합":   bundle,
+        "주소":   addr,
     }
 
 # ─── 4) 기타 필드(인터넷·TV·스마트홈·고객희망일) 파싱 ─────────────────
